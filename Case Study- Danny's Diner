@@ -1,0 +1,203 @@
+Problem Statement
+Danny wants to use the data to answer a few simple questions about his customers, especially about their visiting patterns, how much money they’ve spent and also which menu items are their favourite. Having this deeper connection with his customers will help him deliver a better and more personalised experience for his loyal customers.
+
+He plans on using these insights to help him decide whether he should expand the existing customer loyalty program - additionally he needs help to generate some basic datasets so his team can easily inspect the data without needing to use SQL.
+
+Danny has provided you with a sample of his overall customer data due to privacy issues - but he hopes that these examples are enough for you to write fully functioning SQL queries to help him answer his questions!
+
+Danny has shared with you 3 key datasets for this case study:
+
+sales
+menu
+members
+
+**Schema (PostgreSQL v13)**
+
+    CREATE SCHEMA dannys_diner;
+    SET search_path = dannys_diner;
+    
+    CREATE TABLE sales (
+      "customer_id" VARCHAR(1),
+      "order_date" DATE,
+      "product_id" INTEGER
+    );
+    
+    INSERT INTO sales
+      ("customer_id", "order_date", "product_id")
+    VALUES
+      ('A', '2021-01-01', '1'),
+      ('A', '2021-01-01', '2'),
+      ('A', '2021-01-07', '2'),
+      ('A', '2021-01-10', '3'),
+      ('A', '2021-01-11', '3'),
+      ('A', '2021-01-11', '3'),
+      ('B', '2021-01-01', '2'),
+      ('B', '2021-01-02', '2'),
+      ('B', '2021-01-04', '1'),
+      ('B', '2021-01-11', '1'),
+      ('B', '2021-01-16', '3'),
+      ('B', '2021-02-01', '3'),
+      ('C', '2021-01-01', '3'),
+      ('C', '2021-01-01', '3'),
+      ('C', '2021-01-07', '3');
+     
+    
+    CREATE TABLE menu (
+      "product_id" INTEGER,
+      "product_name" VARCHAR(5),
+      "price" INTEGER
+    );
+    
+    INSERT INTO menu
+      ("product_id", "product_name", "price")
+    VALUES
+      ('1', 'sushi', '10'),
+      ('2', 'curry', '15'),
+      ('3', 'ramen', '12');
+      
+    
+    CREATE TABLE members (
+      "customer_id" VARCHAR(1),
+      "join_date" DATE
+    );
+    
+    INSERT INTO members
+      ("customer_id", "join_date")
+    VALUES
+      ('A', '2021-01-07'),
+      ('B', '2021-01-09');
+      
+    
+      
+
+---
+
+**Query #1**
+
+    with cte as
+    (
+        select sales.customer_id,sales.order_date ,
+        menu.product_name,menu.price, members.join_date,
+        case
+        when
+        members.join_date<=sales.order_date then 'Y'
+        else 'N'
+        end as "member"
+        from dannys_diner.sales 
+        left join dannys_diner.menu
+        on sales.product_id=menu.product_id
+        left join dannys_diner.members
+        on members.customer_id=sales.customer_id
+        order by sales.customer_id,sales.order_date
+      )
+      select distinct cte.customer_id,order_date,member, 
+      extract(month from order_date) mnt,product_name,cte.price,
+      sum(price) over(partition by cte.customer_id) total_amount_spent,
+       dense_rank() over(partition by cte.customer_id order by order_date) first_item_rnk,
+    	visit_days.cnt_visit_days,
+      count(product_name) over( partition by product_name) product_purchase_cnt,
+      count(product_name) over(partition by cte.customer_id,product_name) cust_product_purchase_cnt,
+      sum(case when product_name='sushi' then price*20 else price*10 end) over(partition by cte.customer_id) as total_points,
+       case 
+       when order_date<= cte.join_date+6 then price*20 
+       when product_name='sushi' then   price*20 
+       else price*10 end as points_updated
+      from cte
+      left join 
+      ( select distinct customer_id, count(distinct order_date) 		cnt_visit_days
+       from dannys_diner.sales
+       group by customer_id
+      ) as visit_days
+      on visit_days.customer_id=cte.customer_id;
+
+| customer_id | order_date               | member | mnt | product_name | price | total_amount_spent | first_item_rnk | cnt_visit_days | product_purchase_cnt | cust_product_purchase_cnt | total_points | points_updated |
+| ----------- | ------------------------ | ------ | --- | ------------ | ----- | ------------------ | -------------- | -------------- | -------------------- | ------------------------- | ------------ | -------------- |
+| A           | 2021-01-01T00:00:00.000Z | N      | 1   | curry        | 15    | 76                 | 1              | 4              | 4                    | 2                         | 860          | 300            |
+| A           | 2021-01-01T00:00:00.000Z | N      | 1   | sushi        | 10    | 76                 | 1              | 4              | 3                    | 1                         | 860          | 200            |
+| A           | 2021-01-07T00:00:00.000Z | Y      | 1   | curry        | 15    | 76                 | 2              | 4              | 4                    | 2                         | 860          | 300            |
+| A           | 2021-01-10T00:00:00.000Z | Y      | 1   | ramen        | 12    | 76                 | 3              | 4              | 8                    | 3                         | 860          | 240            |
+| A           | 2021-01-11T00:00:00.000Z | Y      | 1   | ramen        | 12    | 76                 | 4              | 4              | 8                    | 3                         | 860          | 240            |
+| B           | 2021-01-01T00:00:00.000Z | N      | 1   | curry        | 15    | 74                 | 1              | 6              | 4                    | 2                         | 940          | 300            |
+| B           | 2021-01-02T00:00:00.000Z | N      | 1   | curry        | 15    | 74                 | 2              | 6              | 4                    | 2                         | 940          | 300            |
+| B           | 2021-01-04T00:00:00.000Z | N      | 1   | sushi        | 10    | 74                 | 3              | 6              | 3                    | 2                         | 940          | 200            |
+| B           | 2021-01-11T00:00:00.000Z | Y      | 1   | sushi        | 10    | 74                 | 4              | 6              | 3                    | 2                         | 940          | 200            |
+| B           | 2021-01-16T00:00:00.000Z | Y      | 1   | ramen        | 12    | 74                 | 5              | 6              | 8                    | 2                         | 940          | 120            |
+| B           | 2021-02-01T00:00:00.000Z | Y      | 2   | ramen        | 12    | 74                 | 6              | 6              | 8                    | 2                         | 940          | 120            |
+| C           | 2021-01-01T00:00:00.000Z | N      | 1   | ramen        | 12    | 36                 | 1              | 2              | 8                    | 3                         | 360          | 120            |
+| C           | 2021-01-07T00:00:00.000Z | N      | 1   | ramen        | 12    | 36                 | 2              | 2              | 8                    | 3                         | 360          | 120            |
+
+---
+
+[View on DB Fiddle](https://www.db-fiddle.com/f/2rM8RAnq7h5LLDTzZiRWcd/5663)
+
+  
+  -- 1. What is the total amount each customer spent at the restaurant?
+  select distinct customer_id, total_amount_spent
+  from main
+  
+-- 2. How many days has each customer visited the restaurant?  
+ select distinct customer_id,cnt_visit_days from main
+ 
+ -- 3. What was the first item from the menu purchased by each customer?
+ select distinct customer_id, product-name
+ from main 
+ where first_item_rnk=1
+ 
+ -- 4. What is the most purchased item on the menu and how many times was it purchased by all customers?
+ select customer_id,product_purchase_cnt
+ from main 
+ where product_name=
+ (select product_name from main 
+  order by product_purchase_cnt desc 
+  limit 1)
+ 
+ -- 5. Which item was the most popular for each customer?
+select temp.customer_id, temp.product_name 
+from 
+(
+  select distinct customer_id, product_name, dense_rank() over( partition   by customer_id, product_name order by  product_purchase_cnt)  
+  rnk
+  from main 
+ ) temp
+ where temp.rnk=1
+ 
+ -- 6. Which item was purchased first by the customer after they became a member?
+ select distinct customer_id,  product_name
+ from 
+ (
+ select distinct customer_id,  product_name,
+  dense_rank() over(pratition by customer_id order by order_date)   rnk
+  from main 
+  where member='Y'
+   )temp
+  where temp.rnk=1
+
+ 
+ -- 7. Which item was purchased just before the customer became a member?
+ 
+ select distinct customer_id,  product_name
+ from 
+ (
+ select distinct customer_id,  product_name,
+  dense_rank() over(pratition by customer_id order by order_date desc)   rnk
+  from main 
+   where member='N'
+   )temp
+  where temp.rnk=1
+
+ -- 8. What is the total items and amount spent for each member before they became a member?
+ select customer_id,
+ count(product_name) as total_items,
+ sum(price) as amount_spent
+ from main
+ where member='N'
+ group by customer_id
+ 
+ -- 9.  If each $1 spent equates to 10 points and sushi has a 2x points multiplier - how many points would each customer have?
+ select distinct customer_id, total_points from main
+ 
+ -- 10. In the first week after a customer joins the program (including their join date) they earn 2x points on all items, not just sushi - how many points do customer A and B have at the end of January?
+
+  select distinct customer_id, total_points from main
+ where mnt=1 and customer_id in ('A', 'B')
+
