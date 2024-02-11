@@ -5,4 +5,4 @@ This business case focuses on the operations of company and provides insightful 
 
 [1. Business Case-Ecommerce Company's operations](https://github.com/AnureetKaurTiwana/Business-Case-Study/blob/main/Business%20Case-%20Ecommerce%20Company%E2%80%99s%20operations.pdf)
 
-[2.Danny's Dinner](https://github.com/AnureetKaurTiwana/Business-Case-Study/blob/main/Case%20Study-%20Danny's%20Diner)
+
